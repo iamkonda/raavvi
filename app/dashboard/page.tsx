@@ -18,6 +18,8 @@ import {
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+export const instant = false;
+
 function formatMoney(value: number) {
   return `$${value.toFixed(2)}`;
 }
@@ -30,6 +32,7 @@ function formatOperation(operation: string) {
 
   return operation.charAt(0).toUpperCase() + operation.slice(1).toLowerCase();
 }
+
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
