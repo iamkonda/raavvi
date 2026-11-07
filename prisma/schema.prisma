@@ -1,0 +1,218 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CustomerStatus {
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+enum ApiKeyStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum ApiEnvironment {
+  LIVE
+  TEST
+}
+
+enum UsageStatus {
+  SUCCESS
+  FAILED
+}
+
+enum PricingScope {
+  DEFAULT
+  CUSTOMER
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+  SUPPORT
+  BILLING
+}
+
+model AdminUser {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         AdminRole @default(ADMIN)
+  isActive     Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Customer {
+  id           String         @id @default(cuid())
+  customerCode String         @unique
+  name         String
+  email        String         @unique
+  contactName  String?
+  phone        String?
+  country      String?
+  billingEmail String?
+  notes        String?
+  status       CustomerStatus @default(ACTIVE)
+  passwordHash                 String?
+  mustChangePassword           Boolean   @default(false)
+  temporaryPasswordExpiresAt   DateTime?
+
+  apiKeys      ApiKey[]
+  usageRecords UsageRecord[]
+  pricingRules PricingRule[]
+  invoices     Invoice[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ApiKey {
+  id          String         @id @default(cuid())
+  name        String
+  prefix      String
+  keyHash     String         @unique
+  environment ApiEnvironment @default(LIVE)
+  status      ApiKeyStatus   @default(ACTIVE)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  usageRecords UsageRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([customerId])
+  @@index([status])
+}
+
+model UsageRecord {
+  id             String      @id @default(cuid())
+  requestId      String      @unique
+  operation      String
+  endpoint       String?
+  quantity       Int         @default(1)
+  unitPrice      Decimal     @db.Decimal(18, 8)
+  totalAmount    Decimal     @db.Decimal(18, 8)
+  currency       String      @default("USD")
+  status         UsageStatus
+  responseCode   Int?
+  processingMs   Int?
+  billingPeriod  String
+  pricingRuleId  String?
+  pricingVersion Int?
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  apiKeyId String?
+  apiKey   ApiKey? @relation(fields: [apiKeyId], references: [id], onDelete: Restrict)
+
+  // Invoice linkage: null means this usage has not been invoiced yet.
+  invoiceId String?
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([customerId, createdAt])
+  @@index([apiKeyId])
+  @@index([billingPeriod])
+  @@index([operation])
+  @@index([status])
+  @@index([invoiceId])
+}
+
+model PricingRule {
+  id            String       @id @default(cuid())
+  name          String
+  operation     String
+  scope         PricingScope @default(DEFAULT)
+  unitPrice     Decimal      @db.Decimal(18, 8)
+  currency      String       @default("USD")
+  isActive      Boolean      @default(true)
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  version       Int          @default(1)
+
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([operation, isActive])
+  @@index([customerId, operation])
+  @@index([effectiveFrom, effectiveTo])
+}
+
+model Invoice {
+  id            String        @id @default(cuid())
+  invoiceNumber String        @unique
+  billingPeriod String
+  currency      String        @default("USD")
+  subtotal      Decimal       @db.Decimal(18, 8)
+  taxAmount     Decimal       @default(0) @db.Decimal(18, 8)
+  totalAmount   Decimal       @db.Decimal(18, 8)
+  amountPaid    Decimal       @default(0) @db.Decimal(18, 8)
+  status        InvoiceStatus @default(DRAFT)
+  issueDate     DateTime?
+  dueDate       DateTime?
+  paidAt        DateTime?
+  notes         String?
+  payments Payment[]
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  // All usage records included in this invoice.
+  usageRecords UsageRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([customerId, billingPeriod])
+  @@index([status])
+  @@index([dueDate])
+}
+
+model Payment {
+  id          String   @id @default(cuid())
+  amount      Decimal  @db.Decimal(18, 8)
+  currency    String   @default("USD")
+  reference   String?
+  notes       String?
+  receivedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
+  @@index([receivedAt])
+}
